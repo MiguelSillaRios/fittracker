@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FitTracker Pro</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        html, body {
+            background: #0a0f1e;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overscroll-behavior: none;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-font-smoothing: antialiased;
+        }
+        input[type="number"] { -moz-appearance: textfield; }
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        ::-webkit-scrollbar { display: none; }
+        * { scrollbar-width: none; box-sizing: border-box; }
+        .slide-up { animation: slideUp 0.25s ease; }
+        @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .pop { animation: pop 0.2s ease; }
+        @keyframes pop { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+        .chart-wrap { position: relative; height: 200px; }
+        .nav-safe { padding-bottom: max(env(safe-area-inset-bottom), 8px); }
+        .glow { box-shadow: 0 0 20px currentColor; }
+        select option { background: #1e2a3a; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="app"></div>
+
+<script>
+const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
+
+// ─── CONSTANTES ────────────────────────────────────────────────────────────────
+
+const MUSCLE_GROUPS = [
+    { id: 'pecho',    name: 'Pecho',    color: '#ef4444' },
+    { id: 'espalda',  name: 'Espalda',  color: '#3b82f6' },
+    { id: 'hombros',  name: 'Hombros',  color: '#a855f7' },
+    { id: 'biceps',   name: 'Bíceps',   color: '#f59e0b' },
+    { id: 'triceps',  name: 'Tríceps',  color: '#10b981' },
+    { id: 'piernas',  name: 'Piernas',  color: '#06b6d4' },
+    { id: 'gluteos',  name: 'Glúteos',  color: '#ec4899' },
+    { id: 'core',     name: 'Core',     color: '#84cc16' },
+    { id: 'cardio',   name: 'Cardio',   color: '#f97316' },
+];
+
+const DEFAULT_EXERCISES = [
+    // Pecho
+    { name: 'Press Banca',               muscleGroup: 'pecho' },
+    { name: 'Press Banca Inclinado',      muscleGroup: 'pecho' },
+    { name: 'Press Banca Declinado',      muscleGroup: 'pecho' },
+    { name: 'Aperturas con Mancuernas',   muscleGroup: 'pecho' },
+    { name: 'Fondos en Paralelas',        muscleGroup: 'pecho' },
+    { name: 'Press en Máquina Pecho',     muscleGroup: 'pecho' },
+    { name: 'Cruces en Polea',            muscleGroup: 'pecho' },
+    // Espalda
+    { name: 'Dominadas',                  muscleGroup: 'espalda' },
+    { name: 'Remo con Barra',             muscleGroup: 'espalda' },
+    { name: 'Remo con Mancuerna',         muscleGroup: 'espalda' },
+    { name: 'Jalón al Pecho',             muscleGroup: 'espalda' },
+    { name: 'Peso Muerto',                muscleGroup: 'espalda' },
+    { name: 'Remo en Polea Baja',         muscleGroup: 'espalda' },
+    { name: 'Pull Over con Mancuerna',    muscleGroup: 'espalda' },
+    { name: 'Jalón al Pecho Cerrado',     muscleGroup: 'espalda' },
+    // Hombros
+    { name: 'Press Militar con Barra',    muscleGroup: 'hombros' },
+    { name: 'Press Arnold',               muscleGroup: 'hombros' },
+    { name: 'Elevaciones Laterales',      muscleGroup: 'hombros' },
+    { name: 'Elevaciones Frontales',      muscleGroup: 'hombros' },
+    { name: 'Pájaro / Face Pull',         muscleGroup: 'hombros' },
+    { name: 'Press con Mancuernas',       muscleGroup: 'hombros' },
+    // Bíceps
+    { name: 'Curl con Barra',             muscleGroup: 'biceps' },
+    { name: 'Curl con Mancuerna',         muscleGroup: 'biceps' },
+    { name: 'Curl Martillo',              muscleGroup: 'biceps' },
+    { name: 'Curl Predicador',            muscleGroup: 'biceps' },
+    { name: 'Curl en Polea Baja',         muscleGroup: 'biceps' },
+    { name: 'Curl Concentrado',           muscleGroup: 'biceps' },
+    // Tríceps
+    { name: 'Extensión en Polea Alta',    muscleGroup: 'triceps' },
+    { name: 'Press Francés',              muscleGroup: 'triceps' },
+    { name: 'Fondos en Banco',            muscleGroup: 'triceps' },
+    { name: 'Patada de Tríceps',          muscleGroup: 'triceps' },
+    { name: 'Extensión con Mancuerna',    muscleGroup: 'triceps' },
+    { name: 'Rompe Cráneos',              muscleGroup: 'triceps' },
+    // Piernas
+    { name: 'Sentadilla con Barra',       muscleGroup: 'piernas' },
+    { name: 'Sentadilla Búlgara',         muscleGroup: 'piernas' },
+    { name: 'Prensa de Piernas',          muscleGroup: 'piernas' },
+    { name: 'Extensiones de Cuádriceps',  muscleGroup: 'piernas' },
+    { name: 'Curl Femoral Tumbado',       muscleGroup: 'piernas' },
+    { name: 'Zancada con Mancuernas',     muscleGroup: 'piernas' },
+    { name: 'Peso Muerto Rumano',         muscleGroup: 'piernas' },
+    { name: 'Gemelos en Máquina',         muscleGroup: 'piernas' },
+    { name: 'Sentadilla Goblet',          muscleGroup: 'piernas' },
+    // Glúteos
+    { name: 'Hip Thrust',                 muscleGroup: 'gluteos' },
+    { name: 'Patada de Glúteo en Polea',  muscleGroup: 'gluteos' },
+    { name: 'Abducción de Cadera',        muscleGroup: 'gluteos' },
+    { name: 'Sentadilla Sumo',            muscleGroup: 'gluteos' },
+    { name: 'Buenos Días',                muscleGroup: 'gluteos' },
+    // Core
+    { name: 'Plancha',                    muscleGroup: 'core' },
+    { name: 'Crunch Abdominal',           muscleGroup: 'core' },
+    { name: 'Elevación de Piernas',       muscleGroup: 'core' },
+    { name: 'Rueda Abdominal',            muscleGroup: 'core' },
+    { name: 'Russian Twist',              muscleGroup: 'core' },
+    { name: 'Crunch en Polea',            muscleGroup: 'core' },
+    // Cardio
+    { name: 'Cinta de Correr',            muscleGroup: 'cardio' },
+    { name: 'Bicicleta Estática',         muscleGroup: 'cardio' },
+    { name: 'Elíptica',                   muscleGroup: 'cardio' },
+    { name: 'Remo Ergómetro',             muscleGroup: 'cardio' },
+    { name: 'Saltar a la Comba',          muscleGroup: 'cardio' },
+];
+
+const PROFILE_COLORS = ['#3b82f6','#ec4899','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#f97316'];
+
+// ─── STORAGE ──────────────────────────────────────────────────────────────────
+
+const db = {
+    get(k, d = null) {
+        try { const v = localStorage.getItem('ft2_'+k); return v ? JSON.parse(v) : d; } catch { return d; }
+    },
+    set(k, v) {
+        try { localStorage.setItem('ft2_'+k, JSON.stringify(v)); } catch {}
+    }
+};
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const today = () => new Date().toISOString().slice(0,10);
+const calc1RM = (w, r) => r === 1 ? w : Math.round(w * (1 + r/30));
+const calcVolume = sets => sets.reduce((s, x) => s + (x.weight||0)*(x.reps||0), 0);
+const fmtDate = d => { if(!d) return ''; const dt = new Date(d+'T12:00:00'); return dt.toLocaleDateString('es-ES', { weekday:'short', day:'numeric', month:'short' }); };
+const fmtTime = s => { const a = Math.abs(s), sign = s < 0 ? '+' : ''; return `${sign}${Math.floor(a/60)}:${(a%60).toString().padStart(2,'0')}`; };
+const getMG = id => MUSCLE_GROUPS.find(m => m.id === id) || { name: id, color: '#64748b' };
+const destroyChart = c => { if(c) c.destroy(); return null; };
+
+// FFMI: Fat-Free Mass Index
+function calcFFMI(weightKg, bodyFatPct, heightCm) {
+    if (!weightKg || !bodyFatPct || !heightCm) return null;
+    const hm = heightCm / 100;
+    const lbm = weightKg * (1 - bodyFatPct / 100);
+    const ffmi = lbm / (hm * hm);
+    const normalized = ffmi + 6.1 * (1.8 - hm);
+    return { ffmi: Math.round(ffmi * 10) / 10, normalized: Math.round(normalized * 10) / 10, lbm: Math.round(lbm * 10) / 10 };
+}
+
+function ffmiRange(normalized, gender) {
+    const isMale = gender !== 'female';
+    const ranges = isMale ? [
+        { max: 18,   label: 'Por debajo de la media', color: '#64748b' },
+        { max: 20,   label: 'Media',                  color: '#3b82f6' },
+        { max: 22,   label: 'Por encima de la media', color: '#10b981' },
+        { max: 23,   label: 'Atlético',               color: '#22c55e' },
+        { max: 25,   label: 'Muy atlético',           color: '#f59e0b' },
+        { max: 26,   label: 'Élite natural',          color: '#f97316' },
+        { max: 999,  label: 'Posiblemente asistido',  color: '#ef4444' },
+    ] : [
+        { max: 14,   label: 'Por debajo de la media', color: '#64748b' },
+        { max: 16,   label: 'Media',                  color: '#3b82f6' },
+        { max: 17,   label: 'Por encima de la media', color: '#10b981' },
+        { max: 18,   label: 'Atlética',               color: '#22c55e' },
+        { max: 19,   label: 'Muy atlética',           color: '#f59e0b' },
+        { max: 21,   label: 'Élite natural',          color: '#f97316' },
+        { max: 999,  label: 'Posiblemente asistida',  color: '#ef4444' },
+    ];
+    return ranges.find(r => normalized < r.max) || ranges[ranges.length - 1];
+}
+
+// FFMI gauge percent (0-100) for visual bar
+function ffmiGaugePct(normalized, gender) {
+    const min = gender === 'female' ? 12 : 15;
+    const max = gender === 'female' ? 23 : 28;
+    return Math.min(100, Math.max(0, ((normalized - min) / (max - min)) * 100));
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+
+createApp({
+setup() {
+
+// ── State ──
+const profiles    = ref(db.get('profiles', []));
+const sessions    = ref(db.get('sessions', []));
+const bodyWeights = ref(db.get('bw', []));
+const exercises   = ref(db.get('exercises', null));
+
+if (!exercises.value) {
+    exercises.value = DEFAULT_EXERCISES.map(e => ({ ...e, id: uid() }));
+    db.set('exercises', exercises.value);
+}
+
+const profileId  = ref(db.get('pid', null));
+const view       = ref('home');
+const session    = ref(null);   // active workout
+
+// Timer
+const timer = ref({ on: false, elapsed: 0, target: 90, _id: null });
+
+// Modals / UI
+const modal = ref('');  // 'addExercise' | 'addProfile' | 'viewSession'
+const search   = ref('');
+const mgFilter = ref('');
+const newProfileName   = ref('');
+const newProfileColor  = ref(PROFILE_COLORS[0]);
+const newProfileHeight = ref('');
+const newProfileGender = ref('male');
+const newExForm = ref({ name:'', muscleGroup:'pecho' });
+const newBW     = ref('');
+const newBF     = ref('');   // body fat %
+const viewedSession = ref(null);
+
+// Progress
+const progTab = ref('strength');
+const progExId = ref('');
+
+// Charts refs
+let charts = {};
+
+// ── Computed ──
+
+const profile = computed(() => profiles.value.find(p => p.id === profileId.value) || null);
+
+const mySessions = computed(() =>
+    sessions.value.filter(s => s.profileId === profileId.value).sort((a,b) => b.date.localeCompare(a.date))
+);
+
+const myBW = computed(() =>
+    bodyWeights.value.filter(b => b.profileId === profileId.value).sort((a,b) => a.date.localeCompare(b.date))
+);
+
+const stats = computed(() => {
+    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
+    const weekStr = weekAgo.toISOString().slice(0,10);
+    return {
+        total: mySessions.value.length,
+        week:  mySessions.value.filter(s => s.date >= weekStr).length,
+        bw:    myBW.value.length ? myBW.value[myBW.value.length-1].weight : null,
+    };
+});
+
+const allPRs = computed(() => {
+    const prs = {};
+    mySessions.value.forEach(sess => {
+        sess.exercises.forEach(ex => {
+            ex.sets.forEach(set => {
+                if (!set.weight || !set.reps) return;
+                const orm = calc1RM(set.weight, set.reps);
+                if (!prs[ex.exId] || orm > prs[ex.exId].orm) {
+                    prs[ex.exId] = { name: ex.name, weight: set.weight, reps: set.reps, orm, date: sess.date };
+                }
+            });
+        });
+    });
+    return prs;
+});
+
+const filteredExercises = computed(() => {
+    let list = exercises.value;
+    if (mgFilter.value) list = list.filter(e => e.muscleGroup === mgFilter.value);
+    if (search.value) { const q = search.value.toLowerCase(); list = list.filter(e => e.name.toLowerCase().includes(q)); }
+    return list;
+});
+
+const loggedExercises = computed(() => {
+    const seen = new Set();
+    mySessions.value.forEach(s => s.exercises.forEach(e => seen.add(e.exId)));
+    return exercises.value.filter(e => seen.has(e.id));
+});
+
+const timerDisplay = computed(() => fmtTime(timer.value.target - timer.value.elapsed));
+const timerProgress = computed(() => Math.min((timer.value.elapsed / timer.value.target) * 100, 100));
+const timerOver = computed(() => timer.value.elapsed >= timer.value.target);
+
+const currentFFMI = computed(() => {
+    const bws = myBW.value;
+    if (!bws.length) return null;
+    // Get latest entry that has body fat recorded
+    const latest = [...bws].reverse().find(b => b.bodyFat);
+    if (!latest) return null;
+    const p = profile.value;
+    if (!p?.height) return null;
+    const result = calcFFMI(latest.weight, latest.bodyFat, p.height);
+    if (!result) return null;
+    const range = ffmiRange(result.normalized, p.gender || 'male');
+    const gaugePct = ffmiGaugePct(result.normalized, p.gender || 'male');
+    return { ...result, range, gaugePct, date: latest.date, bodyFat: latest.bodyFat, weight: latest.weight };
+});
+
+// ── Actions ──
+
+function save() {
+    db.set('profiles', profiles.value);
+    db.set('sessions', sessions.value);
+    db.set('bw', bodyWeights.value);
+    db.set('exercises', exercises.value);
+}
+
+function selectProfile(id) {
+    profileId.value = id;
+    db.set('pid', id);
+    view.value = 'home';
+}
+
+function addProfile() {
+    if (!newProfileName.value.trim()) return;
+    const p = {
+        id: uid(),
+        name: newProfileName.value.trim(),
+        color: newProfileColor.value,
+        gender: newProfileGender.value,
+        height: newProfileHeight.value ? parseFloat(newProfileHeight.value) : null,
+        defaultSets: 3,
+        createdAt: today()
+    };
+    profiles.value.push(p);
+    save();
+    newProfileName.value = '';
+    newProfileHeight.value = '';
+    modal.value = '';
+    selectProfile(p.id);
+}
+
+function deleteProfile(id) {
+    if (!confirm('¿Eliminar perfil y todos sus datos?')) return;
+    profiles.value   = profiles.value.filter(p => p.id !== id);
+    sessions.value   = sessions.value.filter(s => s.profileId !== id);
+    bodyWeights.value = bodyWeights.value.filter(b => b.profileId !== id);
+    save();
+    if (profileId.value === id) { profileId.value = null; db.set('pid', null); }
+}
+
+function getLastData(exId) {
+    for (const s of mySessions.value) {
+        const ex = s.exercises.find(e => e.exId === exId);
+        if (ex) return { date: s.date, sets: ex.sets.map(s => ({ weight: s.weight, reps: s.reps })) };
+    }
+    return null;
+}
+
+function startWorkout() {
+    const d = today();
+    const existing = mySessions.value.find(s => s.date === d);
+    if (existing) {
+        session.value = JSON.parse(JSON.stringify(existing));
+    } else {
+        session.value = { id: uid(), profileId: profileId.value, date: d, notes: '', exercises: [], startedAt: Date.now() };
+    }
+    view.value = 'workout';
+}
+
+function addExToSession(ex) {
+    if (!session.value) return;
+    if (session.value.exercises.find(e => e.exId === ex.id)) { modal.value = ''; return; }
+    const last = getLastData(ex.id);
+    const defSets = profile.value?.defaultSets || 3;
+    const sets = last
+        ? last.sets.map(s => ({ weight: s.weight, reps: s.reps, done: false }))
+        : Array.from({ length: defSets }, () => ({ weight: 0, reps: 0, done: false }));
+    session.value.exercises.push({ exId: ex.id, name: ex.name, mg: ex.muscleGroup, sets, lastData: last });
+    modal.value = '';
+    search.value = '';
+    mgFilter.value = '';
+}
+
+function removeEx(i) { session.value.exercises.splice(i, 1); }
+function addSet(i) {
+    const sets = session.value.exercises[i].sets;
+    const last = sets[sets.length-1];
+    sets.push({ weight: last?.weight||0, reps: last?.reps||0, done: false });
+}
+function removeSet(i) {
+    const sets = session.value.exercises[i].sets;
+    if (sets.length > 1) sets.pop();
+}
+
+function toggleDone(exI, setI) {
+    const set = session.value.exercises[exI].sets[setI];
+    set.done = !set.done;
+    if (set.done) startTimer();
+}
+
+function isPR(ex, set) {
+    if (!set.done || !set.weight || !set.reps) return false;
+    const orm = calc1RM(set.weight, set.reps);
+    const pr = allPRs.value[ex.exId];
+    return !pr || orm > pr.orm;
+}
+
+function finishWorkout() {
+    if (!session.value) return;
+    const idx = sessions.value.findIndex(s => s.id === session.value.id);
+    if (idx >= 0) sessions.value[idx] = session.value;
+    else sessions.value.push(session.value);
+    save();
+    stopTimer();
+    session.value = null;
+    view.value = 'home';
+}
+
+function cancelWorkout() { stopTimer(); session.value = null; view.value = 'home'; }
+
+// Timer
+function startTimer() {
+    stopTimer();
+    timer.value.elapsed = 0;
+    timer.value.on = true;
+    timer.value._id = setInterval(() => {
+        timer.value.elapsed++;
+        if (timer.value.elapsed === timer.value.target && navigator.vibrate) navigator.vibrate([200,100,200]);
+    }, 1000);
+}
+function stopTimer() {
+    if (timer.value._id) { clearInterval(timer.value._id); timer.value._id = null; }
+    timer.value.on = false;
+    timer.value.elapsed = 0;
+}
+function resetTimer() { timer.value.elapsed = 0; }
+
+// Body weight
+function saveBW() {
+    if (!newBW.value) return;
+    const entry = {
+        id: uid(),
+        profileId: profileId.value,
+        date: today(),
+        weight: parseFloat(newBW.value),
+        bodyFat: newBF.value ? parseFloat(newBF.value) : null,
+    };
+    const idx = bodyWeights.value.findIndex(b => b.profileId === profileId.value && b.date === today());
+    if (idx >= 0) bodyWeights.value[idx] = entry; else bodyWeights.value.push(entry);
+    save();
+    newBW.value = '';
+    newBF.value = '';
+}
+
+// Exercises lib
+function addExLib() {
+    if (!newExForm.value.name.trim()) return;
+    exercises.value.push({ id: uid(), name: newExForm.value.name.trim(), muscleGroup: newExForm.value.muscleGroup });
+    save();
+    newExForm.value = { name:'', muscleGroup:'pecho' };
+    modal.value = '';
+}
+
+// Create exercise on-the-fly from search term and add to session
+function createAndAddEx(name, muscleGroup) {
+    if (!name.trim()) return;
+    const mg = muscleGroup || mgFilter.value || 'pecho';
+    const ex = { id: uid(), name: name.trim(), muscleGroup: mg };
+    exercises.value.push(ex);
+    save();
+    addExToSession(ex);
+}
+
+// Update profile height/gender from settings
+function updateProfileBody(field, val) {
+    const p = profiles.value.find(p => p.id === profileId.value);
+    if (p) { p[field] = val; save(); }
+}
+
+// Session helpers
+function sessVolume(s) { return s.exercises.reduce((t,ex) => t + calcVolume(ex.sets), 0); }
+function deleteSession(id) { if(confirm('¿Eliminar esta sesión?')) { sessions.value = sessions.value.filter(s => s.id !== id); save(); } }
+
+// Export / Import
+function exportData() {
+    const blob = new Blob([JSON.stringify({ v:2, profiles:profiles.value, sessions:sessions.value, bodyWeights:bodyWeights.value, exercises:exercises.value }, null, 2)], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `fittracker-${today()}.json`;
+    a.click();
+}
+function importData(e) {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+        try {
+            const d = JSON.parse(ev.target.result);
+            if (d.profiles)    profiles.value    = d.profiles;
+            if (d.sessions)    sessions.value    = d.sessions;
+            if (d.bodyWeights) bodyWeights.value = d.bodyWeights;
+            if (d.exercises)   exercises.value   = d.exercises;
+            save(); alert('✅ Datos importados');
+        } catch { alert('❌ Error al importar'); }
+    };
+    r.readAsText(f);
+    e.target.value = '';
+}
+
+// Charts
+function chartBase() {
+    return {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: { backgroundColor:'#1e2a3a', borderColor:'#334155', borderWidth:1, titleColor:'#94a3b8', bodyColor:'#f1f5f9', padding:10 }
+        },
+        scales: {
+            x: { grid:{ color:'#1a2535' }, ticks:{ color:'#475569', maxRotation:45, font:{ size:11 } } },
+            y: { grid:{ color:'#1a2535' }, ticks:{ color:'#475569', font:{ size:11 } } }
+        }
+    };
+}
+
+async function initCharts() {
+    await nextTick();
+    await new Promise(r => setTimeout(r, 80));
+    const col = profile.value?.color || '#3b82f6';
+
+    // Strength chart
+    if (progTab.value === 'strength') {
+        const canvas = document.getElementById('chartStrength');
+        if (canvas) {
+            charts.strength = destroyChart(charts.strength);
+            const exId = progExId.value;
+            const data = getExData(exId);
+            charts.strength = new Chart(canvas, {
+                type:'line',
+                data: {
+                    labels: data.map(d => fmtDate(d.date)),
+                    datasets: [
+                        { label:'1RM Est.', data:data.map(d=>d.orm), borderColor:col, backgroundColor:col+'25', fill:true, tension:0.4, pointBackgroundColor:col, pointRadius:5, pointHoverRadius:7 },
+                        { label:'Peso real', data:data.map(d=>d.weight), borderColor:'#10b981', backgroundColor:'transparent', borderDash:[5,4], tension:0.4, pointBackgroundColor:'#10b981', pointRadius:4 }
+                    ]
+                },
+                options: { ...chartBase(), plugins:{ ...chartBase().plugins, legend:{ display:true, labels:{ color:'#94a3b8', boxWidth:10, padding:12 } } } }
+            });
+        }
+    }
+
+    // Volume chart
+    if (progTab.value === 'volume') {
+        const canvas = document.getElementById('chartVolume');
+        if (canvas) {
+            charts.volume = destroyChart(charts.volume);
+            const exId = progExId.value;
+            const data = getExData(exId);
+            charts.volume = new Chart(canvas, {
+                type:'bar',
+                data: { labels:data.map(d=>fmtDate(d.date)), datasets:[{ label:'Volumen', data:data.map(d=>d.vol), backgroundColor:col+'90', borderColor:col, borderWidth:1, borderRadius:6 }] },
+                options: chartBase()
+            });
+        }
+    }
+
+    // Body weight chart
+    if (progTab.value === 'bodyweight') {
+        const canvas = document.getElementById('chartBW');
+        if (canvas) {
+            charts.bw = destroyChart(charts.bw);
+            const data = myBW.value;
+            charts.bw = new Chart(canvas, {
+                type:'line',
+                data: { labels:data.map(d=>fmtDate(d.date)), datasets:[{ label:'Peso', data:data.map(d=>d.weight), borderColor:col, backgroundColor:col+'25', fill:true, tension:0.4, pointBackgroundColor:col, pointRadius:5 }] },
+                options: chartBase()
+            });
+        }
+    }
+
+    // Frequency chart (always shown in progress)
+    const canvasF = document.getElementById('chartFreq');
+    if (canvasF) {
+        charts.freq = destroyChart(charts.freq);
+        const weeks = [];
+        const now = new Date();
+        for (let i = 7; i >= 0; i--) {
+            const ws = new Date(now); ws.setDate(now.getDate() - i*7);
+            const we = new Date(ws); we.setDate(ws.getDate()+6);
+            const a = ws.toISOString().slice(0,10), b = we.toISOString().slice(0,10);
+            weeks.push({ label: i===0?'Esta':'Sem -'+i, count: mySessions.value.filter(s=>s.date>=a&&s.date<=b).length });
+        }
+        charts.freq = new Chart(canvasF, {
+            type:'bar',
+            data: { labels:weeks.map(w=>w.label), datasets:[{ data:weeks.map(w=>w.count), backgroundColor:col+'90', borderColor:col, borderWidth:1, borderRadius:5 }] },
+            options: { ...chartBase(), scales:{ ...chartBase().scales, y:{ ...chartBase().scales.y, ticks:{ ...chartBase().scales.y.ticks, stepSize:1 } } } }
+        });
+    }
+}
+
+function getExData(exId) {
+    const rows = [];
+    mySessions.value.slice().reverse().forEach(s => {
+        const ex = s.exercises.find(e => e.exId === exId);
+        if (!ex) return;
+        const best = ex.sets.reduce((b,s) => { if(!s.weight||!s.reps) return b; const o=calc1RM(s.weight,s.reps); return (!b||o>b.orm)?{...s,orm:o}:b; }, null);
+        if (best) rows.push({ date:s.date, weight:best.weight, reps:best.reps, orm:best.orm, vol:calcVolume(ex.sets) });
+    });
+    return rows;
+}
+
+// Profile setting
+function setDefaultSets(n) {
+    const p = profiles.value.find(p => p.id === profileId.value);
+    if (p) { p.defaultSets = Math.max(1, Math.min(10, n)); save(); }
+}
+
+// ── Watchers ──
+
+watch(view, async v => { if (v === 'progress') { await nextTick(); setTimeout(initCharts, 100); } });
+watch(progTab, async () => { await nextTick(); setTimeout(initCharts, 80); });
+watch(progExId, async () => { await nextTick(); setTimeout(initCharts, 80); });
+watch(loggedExercises, (list) => { if (!progExId.value && list.length) progExId.value = list[0].id; }, { immediate: true });
+
+// ── Template ──
+return {
+    profiles, sessions, bodyWeights, exercises,
+    profileId, profile, view, session,
+    timer, timerDisplay, timerProgress, timerOver,
+    modal, search, mgFilter, newProfileName, newProfileColor, newExForm, newBW,
+    viewedSession, progTab, progExId,
+    mySessions, myBW, stats, allPRs, filteredExercises, loggedExercises,
+    MUSCLE_GROUPS, PROFILE_COLORS, getMG, fmtDate, calc1RM,
+    selectProfile, addProfile, deleteProfile,
+    startWorkout, addExToSession, removeEx, addSet, removeSet, toggleDone, isPR,
+    finishWorkout, cancelWorkout,
+    startTimer, stopTimer, resetTimer,
+    saveBW, addExLib, createAndAddEx, updateProfileBody, sessVolume, deleteSession,
+    exportData, importData, setDefaultSets,
+    getExData, currentFFMI, calcFFMI, ffmiRange, ffmiGaugePct,
+    newProfileHeight, newProfileGender, newBF,
+};
+},
+
+template: `
+<div class="min-h-screen" style="background:#0a0f1e">
+
+<!-- ═══════════════════════════ PROFILE SELECT ═══════════════════════════ -->
+<div v-if="!profile" class="min-h-screen flex flex-col items-center justify-center p-5">
+    <div class="w-full max-w-sm">
+        <div class="text-center mb-10">
+            <div class="text-7xl mb-4">🏋️</div>
+            <h1 class="text-4xl font-black text-white tracking-tight">FitTracker</h1>
+            <p class="text-slate-400 mt-2 text-sm">¿Quién entrena hoy?</p>
+        </div>
+
+        <div class="space-y-3">
+            <button v-for="p in profiles" :key="p.id" @click="selectProfile(p.id)"
+                class="w-full flex items-center gap-4 p-4 rounded-2xl border border-slate-800 bg-slate-900/60 active:scale-95 transition-all">
+                <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-xl flex-shrink-0"
+                    :style="{ background: p.color }">{{ p.name[0].toUpperCase() }}</div>
+                <div class="text-left flex-1">
+                    <div class="font-bold text-white text-lg">{{ p.name }}</div>
+                    <div class="text-xs text-slate-500">{{ p.defaultSets || 3 }} series · desde {{ fmtDate(p.createdAt) }}</div>
+                </div>
+                <span class="text-slate-600 text-lg">›</span>
+            </button>
+        </div>
+
+        <button @click="modal='addProfile'"
+            class="mt-4 w-full flex items-center justify-center gap-2 p-4 rounded-2xl border-2 border-dashed border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-500 transition-all">
+            <span class="text-2xl font-light">+</span><span>Nuevo perfil</span>
+        </button>
+    </div>
+
+    <!-- Add Profile Modal -->
+    <div v-if="modal==='addProfile'" class="fixed inset-0 bg-black/80 flex items-end z-50" @click.self="modal=''">
+        <div class="w-full bg-slate-900 rounded-t-3xl p-6 space-y-4">
+            <div class="font-bold text-white text-lg">Nuevo perfil</div>
+            <input v-model="newProfileName" type="text" placeholder="Tu nombre..." @keyup.enter="addProfile"
+                class="w-full bg-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-500 outline-none text-lg" autofocus />
+            <!-- Color -->
+            <div class="flex gap-3 flex-wrap">
+                <button v-for="c in PROFILE_COLORS" :key="c" @click="newProfileColor=c"
+                    class="w-10 h-10 rounded-full transition-all active:scale-90 flex-shrink-0"
+                    :style="{ background:c, outline: newProfileColor===c ? '3px solid white' : '3px solid transparent', outlineOffset:'2px' }"></button>
+            </div>
+            <!-- Gender -->
+            <div class="flex gap-2">
+                <button @click="newProfileGender='male'"
+                    class="flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all"
+                    :class="newProfileGender==='male' ? 'text-white' : 'text-slate-500'"
+                    :style="newProfileGender==='male' ? { background: newProfileColor } : { background: '#1e2a3a' }">♂ Hombre</button>
+                <button @click="newProfileGender='female'"
+                    class="flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all"
+                    :class="newProfileGender==='female' ? 'text-white' : 'text-slate-500'"
+                    :style="newProfileGender==='female' ? { background: newProfileColor } : { background: '#1e2a3a' }">♀ Mujer</button>
+            </div>
+            <!-- Height -->
+            <div class="flex items-center gap-3">
+                <span class="text-sm text-slate-400 flex-shrink-0">Altura</span>
+                <input v-model="newProfileHeight" type="number" placeholder="ej. 175 cm" min="100" max="250"
+                    class="flex-1 bg-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 outline-none text-sm" />
+                <span class="text-sm text-slate-500">cm</span>
+            </div>
+            <div class="text-xs text-slate-600 -mt-2">Altura y género son opcionales, pero necesarios para el FFMI</div>
+            <div class="flex gap-3 pt-1">
+                <button @click="modal=''" class="flex-1 py-3 rounded-xl bg-slate-700 text-slate-300 font-semibold">Cancelar</button>
+                <button @click="addProfile" class="flex-1 py-3 rounded-xl text-white font-bold text-lg" :style="{ background: newProfileColor }">Crear</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════ MAIN APP ═══════════════════════════════ -->
+<div v-else class="pb-24">
+
+    <!-- Top bar -->
+    <div class="sticky top-0 z-30 border-b border-slate-800/70 backdrop-blur-md" style="background:rgba(10,15,30,0.9)">
+        <div class="flex items-center justify-between px-4 py-3">
+            <button @click="profileId=null; view='home'" class="flex items-center gap-2 active:opacity-70">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+                    :style="{ background: profile.color }">{{ profile.name[0].toUpperCase() }}</div>
+                <span class="font-bold text-white">{{ profile.name }}</span>
+            </button>
+            <span class="text-slate-500 text-sm">{{ new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'short'}) }}</span>
+        </div>
+    </div>
+
+    <!-- ─────────────────────── HOME ─────────────────────── -->
+    <div v-if="view==='home'" class="p-4 space-y-4 slide-up">
+
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-3">
+            <div class="rounded-2xl p-4 text-center" style="background:#111827">
+                <div class="text-3xl font-black" :style="{ color: profile.color }">{{ stats.total }}</div>
+                <div class="text-xs text-slate-500 mt-1">Sesiones</div>
+            </div>
+            <div class="rounded-2xl p-4 text-center" style="background:#111827">
+                <div class="text-3xl font-black text-emerald-400">{{ stats.week }}</div>
+                <div class="text-xs text-slate-500 mt-1">Esta semana</div>
+            </div>
+            <div class="rounded-2xl p-4 text-center" style="background:#111827">
+                <div class="text-3xl font-black text-amber-400">{{ stats.bw ?? '—' }}</div>
+                <div class="text-xs text-slate-500 mt-1">Peso (kg)</div>
+            </div>
+        </div>
+
+        <!-- Body weight log -->
+        <div class="rounded-2xl p-4" style="background:#111827">
+            <div class="text-sm font-semibold text-slate-400 mb-3">⚖️ Registrar medidas corporales</div>
+            <div class="flex gap-2 mb-2">
+                <div class="flex-1">
+                    <div class="text-xs text-slate-500 mb-1 px-1">Peso (kg)</div>
+                    <input v-model="newBW" type="number" step="0.1" placeholder="ej. 80.5" @keyup.enter="saveBW"
+                        class="w-full rounded-xl px-3 py-2.5 text-white placeholder-slate-600 outline-none text-sm"
+                        style="background:#1e2a3a" />
+                </div>
+                <div class="flex-1">
+                    <div class="text-xs text-slate-500 mb-1 px-1">% Grasa (opcional)</div>
+                    <input v-model="newBF" type="number" step="0.1" min="1" max="60" placeholder="ej. 18"
+                        class="w-full rounded-xl px-3 py-2.5 text-white placeholder-slate-600 outline-none text-sm"
+                        style="background:#1e2a3a" />
+                </div>
+                <div class="flex items-end pb-0.5">
+                    <button @click="saveBW" class="px-4 py-2.5 rounded-xl text-white font-bold text-sm active:scale-95 transition-transform"
+                        :style="{ background: profile.color }">OK</button>
+                </div>
+            </div>
+            <!-- Quick FFMI summary on home -->
+            <div v-if="currentFFMI" class="flex items-center justify-between px-1 pt-1">
+                <span class="text-xs text-slate-500">FFMI actual: <span class="font-bold" :style="{ color: currentFFMI.range.color }">{{ currentFFMI.normalized }}</span></span>
+                <span class="text-xs font-semibold" :style="{ color: currentFFMI.range.color }">{{ currentFFMI.range.label }}</span>
+            </div>
+        </div>
+
+        <!-- Start workout -->
+        <button @click="startWorkout"
+            class="w-full py-5 rounded-2xl text-white font-black text-xl flex items-center justify-center gap-3 active:scale-95 transition-transform shadow-lg"
+            :style="{ background: 'linear-gradient(135deg,' + profile.color + ',' + profile.color + 'cc)' }">
+            <span>🏋️</span> Iniciar Entrenamiento
+        </button>
+
+        <!-- Recent sessions -->
+        <div v-if="mySessions.length">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3 px-1">Últimas sesiones</div>
+            <div class="space-y-2">
+                <div v-for="s in mySessions.slice(0,4)" :key="s.id" class="rounded-2xl p-4 cursor-pointer active:scale-98 transition-all"
+                    style="background:#111827" @click="viewedSession=s; modal='viewSession'">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-white">{{ fmtDate(s.date) }}</span>
+                        <span class="text-xs text-slate-500">{{ s.exercises.length }} ejercicios · {{ sessVolume(s).toLocaleString() }} kg</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                        <span v-for="ex in s.exercises.slice(0,4)" :key="ex.exId"
+                            class="text-xs px-2 py-0.5 rounded-lg font-medium"
+                            :style="{ background: getMG(ex.mg).color+'25', color: getMG(ex.mg).color }">{{ ex.name }}</span>
+                        <span v-if="s.exercises.length>4" class="text-xs px-2 py-0.5 rounded-lg bg-slate-800 text-slate-500">+{{ s.exercises.length-4 }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div v-else class="text-center py-14 text-slate-600">
+            <div class="text-5xl mb-3">🚀</div>
+            <div class="font-semibold">¡Empieza tu primera sesión!</div>
+        </div>
+    </div>
+
+    <!-- ─────────────────────── WORKOUT ─────────────────────── -->
+    <div v-if="view==='workout' && session" class="slide-up">
+
+        <!-- Rest timer -->
+        <div v-if="timer.on" class="sticky z-20 border-b border-slate-800" style="top:53px; background:#0d1626">
+            <div class="flex items-center justify-between px-4 py-2">
+                <span class="text-sm font-mono font-bold" :class="timerOver ? 'text-emerald-400' : 'text-slate-300'">
+                    ⏱ Descanso {{ timerDisplay }}
+                </span>
+                <div class="flex gap-2">
+                    <button @click="resetTimer" class="text-xs px-3 py-1 rounded-lg bg-slate-700 text-slate-300 active:scale-95">Reset</button>
+                    <button @click="stopTimer" class="text-xs px-3 py-1 rounded-lg bg-slate-700 text-slate-300 active:scale-95">✕</button>
+                </div>
+            </div>
+            <div class="h-1 bg-slate-800">
+                <div class="h-1 transition-all duration-1000"
+                    :class="timerOver ? 'bg-emerald-400' : 'bg-blue-500'"
+                    :style="{ width: timerProgress + '%' }"></div>
+            </div>
+            <!-- Timer target adjustment -->
+            <div class="flex items-center justify-center gap-3 py-1.5">
+                <button @click="timer.target=Math.max(30,timer.target-15)" class="text-xs text-slate-500 w-6 h-6 rounded bg-slate-800 active:scale-90">-</button>
+                <span class="text-xs text-slate-500 font-mono">Objetivo: {{ Math.floor(timer.target/60) }}:{{ (timer.target%60).toString().padStart(2,'0') }}</span>
+                <button @click="timer.target=Math.min(600,timer.target+15)" class="text-xs text-slate-500 w-6 h-6 rounded bg-slate-800 active:scale-90">+</button>
+            </div>
+        </div>
+
+        <div class="p-4 space-y-3">
+            <!-- Header -->
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-black text-white text-xl">Entrenamiento</div>
+                    <div class="text-slate-400 text-sm">{{ fmtDate(session.date) }}</div>
+                </div>
+                <div class="flex gap-2">
+                    <button @click="cancelWorkout" class="px-3 py-2 rounded-xl text-sm text-slate-400" style="background:#1e2a3a">Cancelar</button>
+                    <button @click="finishWorkout" class="px-4 py-2 rounded-xl text-white font-bold text-sm active:scale-95"
+                        :style="{ background: profile.color }">💾 Guardar</button>
+                </div>
+            </div>
+
+            <!-- Exercise cards -->
+            <div v-for="(ex, ei) in session.exercises" :key="ex.exId" class="rounded-2xl overflow-hidden" style="background:#111827">
+
+                <!-- Exercise header -->
+                <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                    <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                        <div class="w-1 h-8 rounded-full flex-shrink-0" :style="{ background: getMG(ex.mg).color }"></div>
+                        <div class="min-w-0">
+                            <div class="font-bold text-white truncate">{{ ex.name }}</div>
+                            <div class="text-xs text-slate-500">{{ getMG(ex.mg).name }}</div>
+                        </div>
+                    </div>
+                    <button @click="removeEx(ei)" class="text-slate-600 hover:text-red-400 p-2 transition-colors flex-shrink-0">✕</button>
+                </div>
+
+                <!-- Last session reference -->
+                <div v-if="ex.lastData" class="mx-4 mb-3 px-3 py-2 rounded-xl text-xs" style="background:#1a2535">
+                    <span class="text-slate-500">📅 {{ fmtDate(ex.lastData.date) }}: </span>
+                    <span class="text-slate-300">{{ ex.lastData.sets.map(s=>s.weight+'kg×'+s.reps).join(' · ') }}</span>
+                </div>
+                <div v-else class="mx-4 mb-3 px-3 py-2 rounded-xl text-xs text-slate-600" style="background:#1a2535">
+                    Primera vez con este ejercicio 💪
+                </div>
+
+                <!-- Sets header -->
+                <div class="grid grid-cols-12 gap-2 px-4 mb-1">
+                    <div class="col-span-1 text-xs text-slate-600 text-center">#</div>
+                    <div class="col-span-4 text-xs text-slate-500 text-center">Kg</div>
+                    <div class="col-span-4 text-xs text-slate-500 text-center">Reps</div>
+                    <div class="col-span-3 text-xs text-slate-500 text-center">Listo</div>
+                </div>
+
+                <!-- Sets -->
+                <div class="px-4 space-y-2">
+                    <div v-for="(set, si) in ex.sets" :key="si"
+                        class="grid grid-cols-12 gap-2 items-center transition-opacity"
+                        :class="set.done ? 'opacity-50' : ''">
+                        <div class="col-span-1 text-sm text-slate-600 text-center font-mono">{{ si+1 }}</div>
+                        <input v-model.number="set.weight" type="number" step="0.5" min="0" placeholder="—"
+                            :disabled="set.done"
+                            class="col-span-4 rounded-xl py-2.5 text-center font-bold text-white outline-none disabled:cursor-not-allowed text-sm"
+                            style="background:#1e2a3a" />
+                        <input v-model.number="set.reps" type="number" min="0" placeholder="—"
+                            :disabled="set.done"
+                            class="col-span-4 rounded-xl py-2.5 text-center font-bold text-white outline-none disabled:cursor-not-allowed text-sm"
+                            style="background:#1e2a3a" />
+                        <div class="col-span-3 flex items-center justify-center gap-1">
+                            <button @click="toggleDone(ei,si)"
+                                class="w-9 h-9 rounded-xl flex items-center justify-center font-bold transition-all active:scale-90 text-sm"
+                                :style="set.done ? { background: profile.color } : { background: '#1e2a3a', color: '#475569' }">
+                                {{ set.done ? '✓' : '○' }}
+                            </button>
+                            <span v-if="isPR(ex,set)" class="text-sm pop">🏆</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Set controls -->
+                <div class="flex gap-2 p-4 pt-3">
+                    <button @click="addSet(ei)" class="flex-1 py-2 rounded-xl text-slate-400 text-sm transition-all active:scale-95"
+                        style="background:#1e2a3a">+ Serie</button>
+                    <button v-if="ex.sets.length>1" @click="removeSet(ei)" class="px-4 py-2 rounded-xl text-slate-500 text-sm transition-all active:scale-95 hover:text-red-400"
+                        style="background:#1e2a3a">− Serie</button>
+                </div>
+            </div>
+
+            <!-- Add exercise -->
+            <button @click="modal='addEx'; search=''; mgFilter=''"
+                class="w-full py-4 rounded-2xl border-2 border-dashed border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300 transition-all flex items-center justify-center gap-2 active:scale-95">
+                <span class="text-2xl font-light">+</span><span>Añadir ejercicio</span>
+            </button>
+
+            <!-- Notes -->
+            <div class="rounded-2xl p-4" style="background:#111827">
+                <div class="text-sm text-slate-400 mb-2">📝 Notas</div>
+                <textarea v-model="session.notes" placeholder="¿Cómo fue el entreno? Lesiones, sensaciones..."
+                    class="w-full rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 outline-none resize-none"
+                    style="background:#1e2a3a" rows="2"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─────────────────────── HISTORY ─────────────────────── -->
+    <div v-if="view==='history'" class="p-4 space-y-3 slide-up">
+        <div class="font-black text-white text-xl">Historial</div>
+
+        <div v-if="!mySessions.length" class="text-center py-14 text-slate-600">
+            <div class="text-5xl mb-3">📖</div>
+            <div>Sin sesiones aún</div>
+        </div>
+
+        <div v-for="s in mySessions" :key="s.id" class="rounded-2xl p-4" style="background:#111827">
+            <div class="flex items-start justify-between mb-3">
+                <div>
+                    <div class="font-bold text-white">{{ fmtDate(s.date) }}</div>
+                    <div class="text-xs text-slate-500 mt-0.5">{{ s.exercises.length }} ejercicios · {{ sessVolume(s).toLocaleString() }} kg volumen</div>
+                </div>
+                <button @click="deleteSession(s.id)" class="text-slate-700 hover:text-red-400 p-1 transition-colors">🗑</button>
+            </div>
+
+            <div class="space-y-1.5">
+                <div v-for="ex in s.exercises" :key="ex.exId" class="flex items-start gap-2">
+                    <div class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" :style="{ background: getMG(ex.mg).color }"></div>
+                    <div>
+                        <span class="text-sm text-slate-300 font-medium">{{ ex.name }}</span>
+                        <span class="text-xs text-slate-600 ml-2">{{ ex.sets.filter(s=>s.weight).map(s=>s.weight+'kg×'+s.reps).join(' · ') }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="s.notes" class="mt-3 text-xs text-slate-500 italic border-t border-slate-800 pt-2">{{ s.notes }}</div>
+        </div>
+    </div>
+
+    <!-- ─────────────────────── PROGRESS ─────────────────────── -->
+    <div v-if="view==='progress'" class="p-4 space-y-4 slide-up">
+        <div class="font-black text-white text-xl">Progreso</div>
+
+        <!-- Tabs -->
+        <div class="flex gap-1 p-1 rounded-xl" style="background:#111827">
+            <button v-for="t in [{id:'strength',l:'💪 Fuerza'},{id:'volume',l:'📊 Volumen'},{id:'bodyweight',l:'⚖️ Peso'}]" :key="t.id"
+                @click="progTab=t.id"
+                class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all"
+                :class="progTab===t.id ? 'text-white' : 'text-slate-500'"
+                :style="progTab===t.id ? { background: profile.color+'cc' } : {}">{{ t.l }}</button>
+        </div>
+
+        <!-- Exercise selector -->
+        <div v-if="progTab!=='bodyweight'">
+            <select v-model="progExId" class="w-full rounded-xl px-4 py-3 text-white outline-none text-sm font-medium" style="background:#111827">
+                <option value="" disabled>Selecciona un ejercicio...</option>
+                <option v-for="ex in loggedExercises" :key="ex.id" :value="ex.id">{{ ex.name }}</option>
+            </select>
+
+            <!-- PR stats -->
+            <div v-if="progExId && allPRs[progExId]" class="mt-3 grid grid-cols-3 gap-2">
+                <div class="rounded-xl p-3 text-center" style="background:#111827">
+                    <div class="text-xs text-slate-500 mb-1">1RM Est.</div>
+                    <div class="text-lg font-black text-yellow-400">{{ allPRs[progExId].orm }}<span class="text-xs font-normal"> kg</span></div>
+                </div>
+                <div class="rounded-xl p-3 text-center" style="background:#111827">
+                    <div class="text-xs text-slate-500 mb-1">Mejor marca</div>
+                    <div class="text-sm font-black text-white">{{ allPRs[progExId].weight }}×{{ allPRs[progExId].reps }}</div>
+                </div>
+                <div class="rounded-xl p-3 text-center" style="background:#111827">
+                    <div class="text-xs text-slate-500 mb-1">Fecha</div>
+                    <div class="text-xs font-bold text-slate-300">{{ fmtDate(allPRs[progExId].date) }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strength chart -->
+        <div v-if="progTab==='strength'" class="rounded-2xl p-4" style="background:#111827">
+            <div class="text-sm font-bold text-slate-300 mb-3">Evolución de fuerza</div>
+            <div class="chart-wrap"><canvas id="chartStrength"></canvas></div>
+            <div v-if="!progExId || !loggedExercises.length" class="text-center py-4 text-slate-600 text-sm">Registra sesiones para ver tu progreso</div>
+        </div>
+
+        <!-- Volume chart -->
+        <div v-if="progTab==='volume'" class="rounded-2xl p-4" style="background:#111827">
+            <div class="text-sm font-bold text-slate-300 mb-3">Volumen por sesión</div>
+            <div class="chart-wrap"><canvas id="chartVolume"></canvas></div>
+        </div>
+
+        <!-- Body weight & FFMI tab -->
+        <div v-if="progTab==='bodyweight'" class="space-y-4">
+
+            <!-- FFMI card -->
+            <div v-if="currentFFMI" class="rounded-2xl p-5" style="background:#111827">
+                <div class="text-sm font-bold text-slate-300 mb-4">🧬 FFMI — Índice de masa libre de grasa</div>
+
+                <!-- Main value -->
+                <div class="flex items-end gap-4 mb-4">
+                    <div>
+                        <div class="text-5xl font-black" :style="{ color: currentFFMI.range.color }">{{ currentFFMI.normalized }}</div>
+                        <div class="text-xs text-slate-500 mt-1">FFMI normalizado</div>
+                    </div>
+                    <div class="flex-1 text-right pb-1">
+                        <div class="font-bold text-lg" :style="{ color: currentFFMI.range.color }">{{ currentFFMI.range.label }}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">{{ fmtDate(currentFFMI.date) }}</div>
+                    </div>
+                </div>
+
+                <!-- Gauge bar -->
+                <div class="relative mb-4">
+                    <div class="h-3 rounded-full overflow-hidden" style="background:linear-gradient(to right,#3b82f6,#10b981,#f59e0b,#f97316,#ef4444)">
+                        <div class="h-full w-1 bg-white rounded-full shadow-lg transition-all duration-500 relative"
+                            :style="{ marginLeft: 'calc(' + currentFFMI.gaugePct + '% - 2px)' }"></div>
+                    </div>
+                </div>
+
+                <!-- Stats row -->
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="rounded-xl p-3 text-center" style="background:#1a2535">
+                        <div class="text-xs text-slate-500 mb-1">Peso</div>
+                        <div class="font-bold text-white">{{ currentFFMI.weight }}<span class="text-xs text-slate-500"> kg</span></div>
+                    </div>
+                    <div class="rounded-xl p-3 text-center" style="background:#1a2535">
+                        <div class="text-xs text-slate-500 mb-1">% Grasa</div>
+                        <div class="font-bold text-white">{{ currentFFMI.bodyFat }}<span class="text-xs text-slate-500">%</span></div>
+                    </div>
+                    <div class="rounded-xl p-3 text-center" style="background:#1a2535">
+                        <div class="text-xs text-slate-500 mb-1">Masa magra</div>
+                        <div class="font-bold text-white">{{ currentFFMI.lbm }}<span class="text-xs text-slate-500"> kg</span></div>
+                    </div>
+                </div>
+
+                <!-- Range table -->
+                <div class="mt-4 space-y-1.5">
+                    <div class="text-xs text-slate-500 mb-2">Tabla de referencia ({{ profile.gender === 'female' ? 'mujer' : 'hombre' }})</div>
+                    <template v-if="profile.gender !== 'female'">
+                        <div v-for="r in [{v:'< 18',l:'Por debajo de la media',c:'#64748b'},{v:'18–20',l:'Media',c:'#3b82f6'},{v:'20–22',l:'Por encima de la media',c:'#10b981'},{v:'22–23',l:'Atlético',c:'#22c55e'},{v:'23–25',l:'Muy atlético',c:'#f59e0b'},{v:'25–26',l:'Élite natural',c:'#f97316'},{v:'> 26',l:'Posiblemente asistido',c:'#ef4444'}]" :key="r.v"
+                            class="flex items-center justify-between py-1 px-2 rounded-lg text-xs"
+                            :style="currentFFMI.range.label===r.l ? { background: r.c+'30', borderLeft:'2px solid '+r.c } : { background: 'transparent' }">
+                            <span class="font-mono font-semibold w-14 flex-shrink-0" :style="{ color: r.c }">{{ r.v }}</span>
+                            <span :style="{ color: currentFFMI.range.label===r.l ? r.c : '#64748b' }">{{ r.l }}</span>
+                        </div>
+                    </template>
+                    <template v-else>
+                        <div v-for="r in [{v:'< 14',l:'Por debajo de la media',c:'#64748b'},{v:'14–16',l:'Media',c:'#3b82f6'},{v:'16–17',l:'Por encima de la media',c:'#10b981'},{v:'17–18',l:'Atlética',c:'#22c55e'},{v:'18–19',l:'Muy atlética',c:'#f59e0b'},{v:'19–21',l:'Élite natural',c:'#f97316'},{v:'> 21',l:'Posiblemente asistida',c:'#ef4444'}]" :key="r.v"
+                            class="flex items-center justify-between py-1 px-2 rounded-lg text-xs"
+                            :style="currentFFMI.range.label===r.l ? { background: r.c+'30', borderLeft:'2px solid '+r.c } : { background: 'transparent' }">
+                            <span class="font-mono font-semibold w-14 flex-shrink-0" :style="{ color: r.c }">{{ r.v }}</span>
+                            <span :style="{ color: currentFFMI.range.label===r.l ? r.c : '#64748b' }">{{ r.l }}</span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- No FFMI data hint -->
+            <div v-else class="rounded-2xl p-5 border border-dashed border-slate-700" style="background:#111827">
+                <div class="text-sm font-bold text-slate-400 mb-2">🧬 FFMI — Índice de masa libre de grasa</div>
+                <div class="text-xs text-slate-500 space-y-1">
+                    <div v-if="!profile.height">⚠️ Añade tu altura en Ajustes para activar el FFMI.</div>
+                    <div v-else>⚠️ Registra tu peso con % de grasa desde el inicio para ver tu FFMI.</div>
+                </div>
+            </div>
+
+            <!-- Body weight chart -->
+            <div class="rounded-2xl p-4" style="background:#111827">
+                <div class="text-sm font-bold text-slate-300 mb-3">Evolución del peso corporal</div>
+                <div class="chart-wrap"><canvas id="chartBW"></canvas></div>
+                <div v-if="!myBW.length" class="text-center py-4 text-slate-600 text-sm">Registra tu peso desde el inicio</div>
+            </div>
+        </div>
+
+        <!-- Weekly frequency -->
+        <div class="rounded-2xl p-4" style="background:#111827">
+            <div class="text-sm font-bold text-slate-300 mb-3">Frecuencia semanal (8 semanas)</div>
+            <div class="chart-wrap" style="height:140px"><canvas id="chartFreq"></canvas></div>
+        </div>
+
+        <!-- PRs list -->
+        <div class="rounded-2xl p-4" style="background:#111827">
+            <div class="text-sm font-bold text-slate-300 mb-3">🏆 Records Personales</div>
+            <div v-if="!Object.keys(allPRs).length" class="text-slate-600 text-sm">Completa series para ver tus records</div>
+            <div class="space-y-3">
+                <div v-for="(pr, exId) in allPRs" :key="exId" class="flex items-center justify-between py-2 border-b border-slate-800 last:border-0">
+                    <div>
+                        <div class="text-sm font-semibold text-white">{{ pr.name }}</div>
+                        <div class="text-xs text-slate-500">{{ fmtDate(pr.date) }}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-black text-yellow-400">{{ pr.weight }}kg × {{ pr.reps }}</div>
+                        <div class="text-xs text-slate-500">1RM ≈ {{ pr.orm }} kg</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─────────────────────── SETTINGS ─────────────────────── -->
+    <div v-if="view==='settings'" class="p-4 space-y-4 slide-up">
+        <div class="font-black text-white text-xl">Ajustes</div>
+
+        <!-- Profile -->
+        <div class="rounded-2xl p-4 space-y-4" style="background:#111827">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-xl"
+                    :style="{ background: profile.color }">{{ profile.name[0].toUpperCase() }}</div>
+                <div>
+                    <div class="font-bold text-white text-lg">{{ profile.name }}</div>
+                    <div class="text-xs text-slate-500">Perfil activo</div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between py-1">
+                <span class="text-sm text-slate-400">Series por defecto</span>
+                <div class="flex items-center gap-3">
+                    <button @click="setDefaultSets((profile.defaultSets||3)-1)" class="w-9 h-9 rounded-xl font-bold text-white active:scale-90 transition-transform" style="background:#1e2a3a">−</button>
+                    <span class="text-white font-black text-xl w-6 text-center">{{ profile.defaultSets||3 }}</span>
+                    <button @click="setDefaultSets((profile.defaultSets||3)+1)" class="w-9 h-9 rounded-xl font-bold text-white active:scale-90 transition-transform" style="background:#1e2a3a">+</button>
+                </div>
+            </div>
+            <!-- Gender -->
+            <div class="flex items-center justify-between py-1">
+                <span class="text-sm text-slate-400">Sexo</span>
+                <div class="flex gap-2">
+                    <button @click="updateProfileBody('gender','male')"
+                        class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                        :class="(profile.gender||'male')==='male' ? 'text-white' : 'text-slate-500'"
+                        :style="(profile.gender||'male')==='male' ? { background: profile.color } : { background: '#1e2a3a' }">♂ Hombre</button>
+                    <button @click="updateProfileBody('gender','female')"
+                        class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                        :class="profile.gender==='female' ? 'text-white' : 'text-slate-500'"
+                        :style="profile.gender==='female' ? { background: profile.color } : { background: '#1e2a3a' }">♀ Mujer</button>
+                </div>
+            </div>
+            <!-- Height -->
+            <div class="flex items-center justify-between py-1 gap-4">
+                <span class="text-sm text-slate-400 flex-shrink-0">Altura (cm)</span>
+                <div class="flex items-center gap-2">
+                    <input :value="profile.height||''" @change="e => updateProfileBody('height', parseFloat(e.target.value))"
+                        type="number" min="100" max="250" placeholder="ej. 175"
+                        class="w-24 rounded-xl px-3 py-1.5 text-white text-sm text-right outline-none" style="background:#1e2a3a" />
+                    <span class="text-slate-500 text-xs">cm</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exercise library -->
+        <div class="rounded-2xl p-4" style="background:#111827">
+            <div class="flex items-center justify-between mb-3">
+                <div class="font-bold text-slate-300">📋 Biblioteca</div>
+                <button @click="modal='addEx2'" class="text-sm px-3 py-1.5 rounded-xl font-semibold active:scale-95"
+                    :style="{ background: profile.color+'30', color: profile.color }">+ Añadir</button>
+            </div>
+            <div class="text-sm text-slate-500">{{ exercises.length }} ejercicios disponibles</div>
+        </div>
+
+        <!-- Data -->
+        <div class="rounded-2xl p-4 space-y-3" style="background:#111827">
+            <div class="font-bold text-slate-300">💾 Datos</div>
+            <button @click="exportData" class="w-full py-3 rounded-xl text-sm text-slate-300 font-medium flex items-center justify-center gap-2 active:scale-95" style="background:#1e2a3a">
+                📤 Exportar datos (backup)
+            </button>
+            <label class="w-full py-3 rounded-xl text-sm text-slate-300 font-medium flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-transform" style="background:#1e2a3a">
+                📥 Importar datos
+                <input type="file" accept=".json" @change="importData" class="hidden" />
+            </label>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="rounded-2xl p-4 space-y-3 border border-red-900/40" style="background:#1a0f0f">
+            <div class="font-bold text-red-400">⚠️ Zona de peligro</div>
+            <button @click="deleteProfile(profileId)" class="w-full py-3 rounded-xl text-sm text-red-300 font-medium active:scale-95" style="background:#2d1515">
+                Eliminar perfil y todos sus datos
+            </button>
+        </div>
+    </div>
+
+</div><!-- end main app -->
+
+<!-- ═══════════════════════════ BOTTOM NAV ═══════════════════════════ -->
+<nav v-if="profile" class="fixed bottom-0 left-0 right-0 border-t border-slate-800/80 z-20 nav-safe backdrop-blur-md" style="background:rgba(10,15,30,0.95)">
+    <div class="grid grid-cols-5 h-16">
+        <button v-for="t in [
+            {id:'home',    icon:'🏠', label:'Inicio'},
+            {id:'workout', icon:'🏋️', label:'Entreno'},
+            {id:'history', icon:'📖', label:'Historial'},
+            {id:'progress',icon:'📈', label:'Progreso'},
+            {id:'settings',icon:'⚙️', label:'Ajustes'},
+        ]" :key="t.id"
+            @click="t.id==='workout' ? startWorkout() : view=t.id"
+            class="flex flex-col items-center justify-center gap-0.5 transition-all active:scale-90"
+            :class="view===t.id ? 'text-white' : 'text-slate-600'">
+            <span class="text-xl leading-none">{{ t.icon }}</span>
+            <span class="text-xs leading-none">{{ t.label }}</span>
+            <div v-if="view===t.id" class="w-4 h-0.5 rounded-full mt-0.5" :style="{ background: profile.color }"></div>
+        </button>
+    </div>
+</nav>
+
+<!-- ═══════════════════════════ MODAL: ADD EXERCISE (WORKOUT) ═══════════════════════════ -->
+<div v-if="modal==='addEx'" class="fixed inset-0 bg-black/80 flex items-end z-50" @click.self="modal=''">
+    <div class="w-full rounded-t-3xl flex flex-col" style="background:#0d1626; max-height:80vh">
+        <div class="flex items-center justify-between p-4 border-b border-slate-800 flex-shrink-0">
+            <div class="font-bold text-white">Añadir ejercicio</div>
+            <button @click="modal=''" class="text-slate-400 w-8 h-8 flex items-center justify-center rounded-xl" style="background:#1e2a3a">✕</button>
+        </div>
+        <div class="p-4 pb-2 flex-shrink-0">
+            <input v-model="search" type="text" placeholder="Buscar..." autofocus
+                class="w-full rounded-xl px-4 py-3 text-white placeholder-slate-600 outline-none text-sm"
+                style="background:#1e2a3a" />
+        </div>
+        <div class="px-4 pb-3 flex gap-2 overflow-x-auto flex-shrink-0">
+            <button @click="mgFilter=''" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                :class="mgFilter==='' ? 'bg-white text-slate-900' : 'text-slate-400'" style="background:mgFilter===''?'white':'#1e2a3a'">Todos</button>
+            <button v-for="mg in MUSCLE_GROUPS" :key="mg.id" @click="mgFilter=mg.id"
+                class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                :class="mgFilter===mg.id ? 'text-white' : 'text-slate-400'"
+                :style="mgFilter===mg.id ? { background: mg.color } : { background: '#1e2a3a' }">{{ mg.name }}</button>
+        </div>
+        <div class="overflow-y-auto flex-1">
+            <!-- Create custom exercise from search term -->
+            <div v-if="search.trim()" @click="createAndAddEx(search, mgFilter)"
+                class="flex items-center gap-3 px-4 py-3.5 border-b border-slate-700 active:bg-slate-800/50 transition-colors cursor-pointer"
+                style="background:#0d1a2a">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-white font-bold"
+                    :style="{ background: profile?.color || '#3b82f6' }">+</div>
+                <div class="flex-1">
+                    <div class="text-sm font-bold" :style="{ color: profile?.color || '#3b82f6' }">Crear "{{ search.trim() }}"</div>
+                    <div class="text-xs text-slate-500">Añadir ejercicio personalizado{{ mgFilter ? ' · ' + getMG(mgFilter).name : '' }}</div>
+                </div>
+                <div class="text-xs text-slate-500 bg-slate-700 px-2 py-1 rounded-lg">Nuevo</div>
+            </div>
+
+            <div v-for="ex in filteredExercises" :key="ex.id" @click="addExToSession(ex)"
+                class="flex items-center gap-3 px-4 py-3.5 border-b border-slate-800/50 active:bg-slate-800/50 transition-colors">
+                <div class="w-1 h-8 rounded-full flex-shrink-0" :style="{ background: getMG(ex.muscleGroup).color }"></div>
+                <div class="flex-1">
+                    <div class="text-white text-sm font-medium">{{ ex.name }}</div>
+                    <div class="text-xs text-slate-500">{{ getMG(ex.muscleGroup).name }}</div>
+                </div>
+                <div class="text-slate-500 text-xl font-light">+</div>
+            </div>
+            <div v-if="!filteredExercises.length && !search.trim()" class="text-center py-10 text-slate-600 text-sm">Sin resultados</div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════ MODAL: ADD EXERCISE (LIBRARY) ═══════════════════════════ -->
+<div v-if="modal==='addEx2'" class="fixed inset-0 bg-black/80 flex items-end z-50" @click.self="modal=''">
+    <div class="w-full rounded-t-3xl p-5 space-y-4" style="background:#0d1626">
+        <div class="font-bold text-white text-lg">Nuevo ejercicio</div>
+        <input v-model="newExForm.name" type="text" placeholder="Nombre del ejercicio" autofocus
+            class="w-full rounded-xl px-4 py-3 text-white placeholder-slate-600 outline-none"
+            style="background:#1e2a3a" @keyup.enter="addExLib" />
+        <select v-model="newExForm.muscleGroup" class="w-full rounded-xl px-4 py-3 text-white outline-none" style="background:#1e2a3a">
+            <option v-for="mg in MUSCLE_GROUPS" :key="mg.id" :value="mg.id">{{ mg.name }}</option>
+        </select>
+        <div class="flex gap-3">
+            <button @click="modal=''" class="flex-1 py-3 rounded-xl text-slate-300 font-semibold" style="background:#1e2a3a">Cancelar</button>
+            <button @click="addExLib" class="flex-1 py-3 rounded-xl text-white font-bold" :style="{ background: profile?.color || '#3b82f6' }">Añadir</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════ MODAL: VIEW SESSION ═══════════════════════════ -->
+<div v-if="modal==='viewSession' && viewedSession" class="fixed inset-0 bg-black/80 flex items-end z-50" @click.self="modal=''">
+    <div class="w-full rounded-t-3xl flex flex-col" style="background:#0d1626; max-height:85vh">
+        <div class="flex items-center justify-between p-4 border-b border-slate-800 flex-shrink-0">
+            <div>
+                <div class="font-bold text-white text-lg">{{ fmtDate(viewedSession.date) }}</div>
+                <div class="text-xs text-slate-500">{{ sessVolume(viewedSession).toLocaleString() }} kg · {{ viewedSession.exercises.length }} ejercicios</div>
+            </div>
+            <button @click="modal=''" class="text-slate-400 w-8 h-8 flex items-center justify-center rounded-xl" style="background:#1e2a3a">✕</button>
+        </div>
+        <div class="overflow-y-auto flex-1 p-4 space-y-4">
+            <div v-for="ex in viewedSession.exercises" :key="ex.exId" class="rounded-xl p-3" style="background:#1a2535">
+                <div class="flex items-center gap-2 mb-2">
+                    <div class="w-1 h-5 rounded-full" :style="{ background: getMG(ex.mg).color }"></div>
+                    <span class="font-semibold text-white text-sm">{{ ex.name }}</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1">
+                    <div v-for="(s,i) in ex.sets" :key="i" class="text-xs text-center rounded-lg py-1.5 font-mono"
+                        :style="{ background: '#111827', color: getMG(ex.mg).color }">
+                        {{ s.weight }}kg×{{ s.reps }}
+                    </div>
+                </div>
+            </div>
+            <div v-if="viewedSession.notes" class="rounded-xl p-3 text-sm text-slate-400 italic" style="background:#1a2535">
+                {{ viewedSession.notes }}
+            </div>
+        </div>
+    </div>
+</div>
+
+</div><!-- root -->
+`
+}).mount('#app');
+</script>
+</body>
+</html>
+`
