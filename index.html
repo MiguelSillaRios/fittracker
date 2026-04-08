@@ -203,6 +203,7 @@ if (!exercises.value) {
 const profileId  = ref(db.get('pid', null));
 const view       = ref('home');
 const session    = ref(null);   // active workout
+const copiedDay  = ref(db.get('copiedDay', null)); // { date, exercises }
 
 // Timer
 const timer = ref({ on: false, elapsed: 0, target: 90, _id: null });
@@ -473,6 +474,29 @@ function updateProfileBody(field, val) {
 function sessVolume(s) { return s.exercises.reduce((t,ex) => t + calcVolume(ex.sets), 0); }
 function deleteSession(id) { if(confirm('¿Eliminar esta sesión?')) { sessions.value = sessions.value.filter(s => s.id !== id); save(); } }
 
+function copyDay(s) {
+    copiedDay.value = {
+        date: s.date,
+        exercises: s.exercises.map(e => ({ exId: e.exId, name: e.name, mg: e.mg, sets: e.sets.map(st => ({ weight: st.weight, reps: st.reps })) }))
+    };
+    db.set('copiedDay', copiedDay.value);
+    modal.value = '';
+}
+
+function pasteDay() {
+    if (!copiedDay.value || !session.value) return;
+    copiedDay.value.exercises.forEach(ex => {
+        if (session.value.exercises.find(e => e.exId === ex.exId)) return;
+        session.value.exercises.push({
+            exId: ex.exId,
+            name: ex.name,
+            mg: ex.mg,
+            sets: ex.sets.map(s => ({ weight: s.weight, reps: s.reps, done: false })),
+            lastData: { date: copiedDay.value.date, sets: ex.sets }
+        });
+    });
+}
+
 // Export / Import
 function exportData() {
     const blob = new Blob([JSON.stringify({ v:2, profiles:profiles.value, sessions:sessions.value, bodyWeights:bodyWeights.value, exercises:exercises.value }, null, 2)], { type:'application/json' });
@@ -629,6 +653,7 @@ return {
     exportData, importData, setDefaultSets,
     getExData, currentFFMI, calcFFMI, ffmiRange, ffmiGaugePct,
     newProfileHeight, newProfileGender, newBF,
+    copiedDay, copyDay, pasteDay,
 };
 },
 
@@ -903,6 +928,14 @@ template: `
                 </div>
             </div>
 
+            <!-- Paste copied day -->
+            <button v-if="copiedDay" @click="pasteDay"
+                class="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-transform font-semibold text-sm"
+                :style="{ background: profile.color+'20', color: profile.color, border: '1.5px solid ' + profile.color + '50' }">
+                <span>📋</span>
+                <span>Pegar día: {{ fmtDate(copiedDay.date) }} ({{ copiedDay.exercises.length }} ejercicios)</span>
+            </button>
+
             <!-- Add exercise -->
             <button @click="modal='addEx'; search=''; mgFilter=''"
                 class="w-full py-4 rounded-2xl border-2 border-dashed border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300 transition-all flex items-center justify-center gap-2 active:scale-95">
@@ -934,7 +967,10 @@ template: `
                     <div class="font-bold text-white">{{ fmtDate(s.date) }}</div>
                     <div class="text-xs text-slate-500 mt-0.5">{{ s.exercises.length }} ejercicios · {{ sessVolume(s).toLocaleString() }} kg volumen</div>
                 </div>
-                <button @click="deleteSession(s.id)" class="text-slate-700 hover:text-red-400 p-1 transition-colors">🗑</button>
+                <div class="flex items-center gap-1">
+                    <button @click="copyDay(s)" class="p-1 transition-colors text-lg" :style="{ color: copiedDay && copiedDay.date===s.date ? profile.color : '#475569' }" title="Copiar día">📋</button>
+                    <button @click="deleteSession(s.id)" class="text-slate-700 hover:text-red-400 p-1 transition-colors">🗑</button>
+                </div>
             </div>
 
             <div class="space-y-1.5">
@@ -1282,7 +1318,14 @@ template: `
                 <div class="font-bold text-white text-lg">{{ fmtDate(viewedSession.date) }}</div>
                 <div class="text-xs text-slate-500">{{ sessVolume(viewedSession).toLocaleString() }} kg · {{ viewedSession.exercises.length }} ejercicios</div>
             </div>
-            <button @click="modal=''" class="text-slate-400 w-8 h-8 flex items-center justify-center rounded-xl" style="background:#1e2a3a">✕</button>
+            <div class="flex items-center gap-2">
+                <button @click="copyDay(viewedSession)"
+                    class="text-sm px-3 py-1.5 rounded-xl font-semibold active:scale-95 transition-transform flex items-center gap-1"
+                    :style="copiedDay && copiedDay.date===viewedSession.date ? { background: profile.color, color: 'white' } : { background: '#1e2a3a', color: '#94a3b8' }">
+                    📋 <span>{{ copiedDay && copiedDay.date===viewedSession.date ? 'Copiado' : 'Copiar' }}</span>
+                </button>
+                <button @click="modal=''" class="text-slate-400 w-8 h-8 flex items-center justify-center rounded-xl" style="background:#1e2a3a">✕</button>
+            </div>
         </div>
         <div class="overflow-y-auto flex-1 p-4 space-y-4">
             <div v-for="ex in viewedSession.exercises" :key="ex.exId" class="rounded-xl p-3" style="background:#1a2535">
