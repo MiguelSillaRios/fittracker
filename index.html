@@ -7,6 +7,7 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         html, body {
             background: #0a0f1e;
@@ -182,6 +183,146 @@ function ffmiGaugePct(normalized, gender) {
     const min = gender === 'female' ? 12 : 15;
     const max = gender === 'female' ? 23 : 28;
     return Math.min(100, Math.max(0, ((normalized - min) / (max - min)) * 100));
+}
+
+// ─── REPORT GENERATOR ─────────────────────────────────────────────────────────
+
+function buildReportHTML(d) {
+    const c = d.profile.color || '#3b82f6';
+    const name = d.profile.name;
+    const genDate = new Date().toLocaleDateString('es-ES', { day:'numeric', month:'long', year:'numeric' });
+    const MG_COLORS = { pecho:'#ef4444', espalda:'#3b82f6', hombros:'#a855f7', biceps:'#f59e0b', triceps:'#10b981', piernas:'#06b6d4', gluteos:'#ec4899', core:'#84cc16', cardio:'#f97316' };
+
+    const topEx = Object.entries(d.exStrength).filter(function(e){ return e[1].length >= 2; }).slice(0, 4);
+
+    let exChartDivs = '';
+    let exChartInits = '';
+    topEx.forEach(function(entry, i) {
+        const id = entry[0];
+        const exName = (d.exNames[id] || id).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        exChartDivs += '<div class="cc"><div class="ct">\uD83D\uDCAA ' + exName + '</div><div class="cw"><canvas id="exc' + i + '"></canvas></div></div>';
+        exChartInits +=
+            '\nif(chartsData.exStrength[\'' + id + '\']&&chartsData.exStrength[\'' + id + '\'].length>=2){' +
+            'mkLine(\'exc' + i + '\',' +
+            'chartsData.exStrength[\'' + id + '\'].map(function(x){return fmtD(x.date);}),' +
+            '[{label:\'1RM Est.\',data:chartsData.exStrength[\'' + id + '\'].map(function(x){return x.orm;}),borderColor:\'' + c + '\',backgroundColor:\'' + c + '25\',fill:true,tension:.4,pointBackgroundColor:\'' + c + '\',pointRadius:5},' +
+            '{label:\'Peso real\',data:chartsData.exStrength[\'' + id + '\'].map(function(x){return x.weight;}),borderColor:\'#10b981\',backgroundColor:\'transparent\',borderDash:[5,4],tension:.4,pointBackgroundColor:\'#10b981\',pointRadius:4}],' +
+            'true);}';
+    });
+
+    let sessHTML = '';
+    d.sessions.slice(0, 30).forEach(function(s) {
+        const vol = s.exercises.reduce(function(t,ex){ return t+ex.sets.reduce(function(s2,st){ return s2+(st.weight||0)*(st.reps||0); },0); },0);
+        const fdate = new Date(s.date+'T12:00:00').toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+        const exRows = s.exercises.map(function(ex) {
+            const col = MG_COLORS[ex.mg] || '#64748b';
+            const sets = ex.sets.filter(function(st){return st.weight||st.reps;}).map(function(st){return st.weight+'kg\xD7'+st.reps;}).join(' \xB7 ');
+            return '<div class="er"><span class="md" style="background:'+col+'"></span><span class="en">'+ex.name.replace(/</g,'&lt;')+'</span><span class="ss">'+sets+'</span></div>';
+        }).join('');
+        const notes = s.notes ? '<div class="nt">'+s.notes.replace(/</g,'&lt;')+'</div>' : '';
+        sessHTML += '<div class="scard"><div class="shd"><span class="sd">'+fdate+'</span><span class="sm">'+s.exercises.length+' ejercicios \xB7 '+vol.toLocaleString()+' kg</span></div><div class="exs">'+exRows+'</div>'+notes+'</div>';
+    });
+
+    let prsHTML = '';
+    Object.values(d.prs).sort(function(a,b){return b.orm-a.orm;}).forEach(function(pr) {
+        const fdate = new Date(pr.date+'T12:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'});
+        prsHTML += '<tr><td>'+(pr.name||'').replace(/</g,'&lt;')+'</td><td>'+pr.weight+'kg \xD7 '+pr.reps+'</td><td class="orm">'+pr.orm+' kg</td><td>'+fdate+'</td></tr>';
+    });
+
+    const hasBW = d.bwData.length >= 2;
+    const chartsJSON = JSON.stringify({ weekFreq:d.weekFreq, volData:d.volData, bwData:d.bwData, exStrength:d.exStrength });
+
+    return '<!DOCTYPE html>\n' +
+'<html lang="es">\n' +
+'<head>\n' +
+'<meta charset="UTF-8">\n' +
+'<meta name="viewport" content="width=device-width,initial-scale=1.0">\n' +
+'<title>Reporte de ' + name + ' \u2014 FitTracker Pro</title>\n' +
+'<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><' + '/script>\n' +
+'<style>\n' +
+'*{box-sizing:border-box;margin:0;padding:0}\n' +
+'body{background:#0a0f1e;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif}\n' +
+'.hdr{background:linear-gradient(135deg,#0d1626,#111827);border-bottom:1px solid #1e2a3a;padding:32px 24px}\n' +
+'.hi{max-width:900px;margin:0 auto}\n' +
+'.pr{display:flex;align-items:center;gap:16px}\n' +
+'.av{width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;color:white;flex-shrink:0;background:' + c + '}\n' +
+'.pi h1{font-size:26px;font-weight:900;color:white;margin-bottom:4px}\n' +
+'.pi p{font-size:13px;color:#64748b}\n' +
+'.badge{display:inline-block;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;margin-top:8px;background:' + c + '20;color:' + c + ';border:1px solid ' + c + '40}\n' +
+'.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:24px;max-width:900px;margin:0 auto}\n' +
+'.sc{background:#111827;border-radius:16px;padding:16px;text-align:center}\n' +
+'.sv{font-size:28px;font-weight:900;line-height:1}\n' +
+'.sl{font-size:11px;color:#64748b;margin-top:6px}\n' +
+'.wrap{max-width:900px;margin:0 auto;padding:0 24px 32px}\n' +
+'.stit{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.1em;margin:24px 0 14px;padding-top:24px;border-top:1px solid #1e2a3a}\n' +
+'.cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}\n' +
+'.cc{background:#111827;border-radius:16px;padding:20px}\n' +
+'.ct{font-size:13px;font-weight:700;color:#cbd5e1;margin-bottom:14px}\n' +
+'.cw{position:relative;height:200px}\n' +
+'.pt{width:100%;border-collapse:collapse}\n' +
+'.pt th{text-align:left;font-size:11px;color:#64748b;padding:8px 12px;text-transform:uppercase;letter-spacing:.05em}\n' +
+'.pt td{padding:10px 12px;border-top:1px solid #1e2a3a;font-size:13px;color:#e2e8f0}\n' +
+'.orm{color:#fbbf24;font-weight:700}\n' +
+'.scard{background:#111827;border-radius:16px;padding:16px;margin-bottom:10px}\n' +
+'.shd{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:4px}\n' +
+'.sd{font-weight:700;color:white;font-size:15px}\n' +
+'.sm{font-size:11px;color:#64748b}\n' +
+'.er{display:flex;align-items:center;gap:8px;padding:3px 0}\n' +
+'.md{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}\n' +
+'.en{font-size:12px;color:#cbd5e1;font-weight:600}\n' +
+'.ss{font-size:11px;color:#64748b;margin-left:4px}\n' +
+'.nt{margin-top:10px;font-size:12px;color:#64748b;font-style:italic;border-top:1px solid #1e2a3a;padding-top:8px}\n' +
+'.footer{text-align:center;padding:24px;color:#334155;font-size:11px;border-top:1px solid #1e2a3a;margin-top:8px}\n' +
+'@media(max-width:600px){.sg{grid-template-columns:repeat(2,1fr)}.cg{grid-template-columns:1fr}.pi h1{font-size:20px}}\n' +
+'</style>\n' +
+'</head>\n' +
+'<body>\n' +
+'<div class="hdr"><div class="hi"><div class="pr">\n' +
+'  <div class="av">' + name[0].toUpperCase() + '</div>\n' +
+'  <div class="pi"><h1>' + name + '</h1><p>Reporte generado el ' + genDate + '</p><span class="badge">FitTracker Pro</span></div>\n' +
+'</div></div></div>\n' +
+'\n' +
+'<div class="sg">\n' +
+'  <div class="sc"><div class="sv" style="color:' + c + '">' + d.stats.totalSessions + '</div><div class="sl">Sesiones totales</div></div>\n' +
+'  <div class="sc"><div class="sv" style="color:#10b981">' + d.stats.totalVolStr + '</div><div class="sl">Volumen total (kg)</div></div>\n' +
+'  <div class="sc"><div class="sv" style="color:#f59e0b">' + d.stats.prCount + '</div><div class="sl">Records (PRs)</div></div>\n' +
+(d.stats.weekAvg ? '  <div class="sc"><div class="sv" style="color:#a855f7">' + d.stats.weekAvg + '</div><div class="sl">Sesiones/semana</div></div>\n' : '') +
+(d.stats.bwChange !== null ? '  <div class="sc"><div class="sv" style="color:' + (d.stats.bwChange >= 0 ? '#f97316' : '#10b981') + '">' + (d.stats.bwChange >= 0 ? '+' : '') + d.stats.bwChange + ' kg</div><div class="sl">Cambio de peso</div></div>\n' : '') +
+'  <div class="sc"><div class="sv" style="color:#475569;font-size:13px;padding-top:6px">' + d.stats.period + '</div><div class="sl">Per\xEDodo</div></div>\n' +
+'</div>\n' +
+'\n' +
+'<div class="wrap">\n' +
+'  <div class="stit">Frecuencia y Volumen</div>\n' +
+'  <div class="cg">\n' +
+'    <div class="cc"><div class="ct">\uD83D\uDCC5 Sesiones por semana (12 semanas)</div><div class="cw"><canvas id="freqChart"></canvas></div></div>\n' +
+'    <div class="cc"><div class="ct">\uD83D\uDCCA Volumen por sesi\xF3n (kg)</div><div class="cw"><canvas id="volChart"></canvas></div></div>\n' +
+(hasBW ? '    <div class="cc"><div class="ct">\u2696\uFE0F Evoluci\xF3n del peso corporal</div><div class="cw"><canvas id="bwChart"></canvas></div></div>\n' : '') +
+'  </div>\n' +
+(topEx.length ? '  <div class="stit">Progresi\xF3n de Fuerza</div>\n  <div class="cg">' + exChartDivs + '</div>\n' : '') +
+(prsHTML ? '  <div class="stit">\uD83C\uDFC6 Records Personales</div>\n  <div style="background:#111827;border-radius:16px;overflow:auto"><table class="pt"><thead><tr><th>Ejercicio</th><th>Mejor marca</th><th>1RM Est.</th><th>Fecha</th></tr></thead><tbody>' + prsHTML + '</tbody></table></div>\n' : '') +
+'  <div class="stit">\uD83D\uDCD6 Historial de Sesiones</div>\n' +
+sessHTML +
+(d.sessions.length > 30 ? '  <p style="text-align:center;color:#64748b;font-size:12px;margin-top:8px">Mostrando las \xFAltimas 30 sesiones de ' + d.sessions.length + ' total</p>\n' : '') +
+'</div>\n' +
+'\n' +
+'<div class="footer">Generado con FitTracker Pro \xB7 ' + genDate + '</div>\n' +
+'\n' +
+'<script>\n' +
+'var chartsData=' + chartsJSON + ';\n' +
+'function fmtD(d){if(!d)return\'\';var x=new Date(d+\'T12:00:00\');return x.toLocaleDateString(\'es-ES\',{day:\'numeric\',month:\'short\'});}\n' +
+'var bo={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:\'#1e2a3a\',borderColor:\'#334155\',borderWidth:1,titleColor:\'#94a3b8\',bodyColor:\'#f1f5f9\',padding:10}},scales:{x:{grid:{color:\'#1a2535\'},ticks:{color:\'#475569\',maxRotation:45,font:{size:10}}},y:{grid:{color:\'#1a2535\'},ticks:{color:\'#475569\',font:{size:10}}}}};\n' +
+'function mkBar(id,labels,data,col){var ctx=document.getElementById(id);if(!ctx)return;var o=JSON.parse(JSON.stringify(bo));o.scales.y.ticks.stepSize=1;new Chart(ctx,{type:\'bar\',data:{labels:labels,datasets:[{data:data,backgroundColor:col+\'90\',borderColor:col,borderWidth:1,borderRadius:6}]},options:o});}\n' +
+'function mkLine(id,labels,datasets,leg){var ctx=document.getElementById(id);if(!ctx)return;var o=JSON.parse(JSON.stringify(bo));if(leg){o.plugins.legend={display:true,labels:{color:\'#94a3b8\',boxWidth:10}};}new Chart(ctx,{type:\'line\',data:{labels:labels,datasets:datasets},options:o});}\n' +
+'mkBar(\'freqChart\',chartsData.weekFreq.map(function(w){return w.label;}),chartsData.weekFreq.map(function(w){return w.count;}),\'' + c + '\');\n' +
+'mkLine(\'volChart\',chartsData.volData.map(function(v){return fmtD(v.date);}),\n' +
+'  [{label:\'Volumen\',data:chartsData.volData.map(function(v){return v.vol;}),borderColor:\'' + c + '\',backgroundColor:\'' + c + '25\',fill:true,tension:.4,pointBackgroundColor:\'' + c + '\',pointRadius:4}]);\n' +
+'if(chartsData.bwData&&chartsData.bwData.length>=2){\n' +
+'  mkLine(\'bwChart\',chartsData.bwData.map(function(b){return fmtD(b.date);}),\n' +
+'    [{label:\'Peso\',data:chartsData.bwData.map(function(b){return b.weight;}),borderColor:\'#f59e0b\',backgroundColor:\'#f59e0b25\',fill:true,tension:.4,pointBackgroundColor:\'#f59e0b\',pointRadius:4}]);}\n' +
+exChartInits + '\n' +
+'<' + '/script>\n' +
+'</body>\n' +
+'</html>';
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
@@ -522,6 +663,160 @@ function importData(e) {
     e.target.value = '';
 }
 
+function generateReport() {
+    const p = profile.value;
+    if (!p) return;
+    const sesses = mySessions.value;
+    if (!sesses.length) { alert('No hay sesiones registradas todavía.'); return; }
+
+    const bw = myBW.value;
+    const prs = allPRs.value;
+
+    // Most-logged exercises
+    const cnt = {};
+    sesses.forEach(s => s.exercises.forEach(ex => { cnt[ex.exId] = (cnt[ex.exId]||0)+1; }));
+    const topExIds = Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,6).map(e=>e[0]);
+
+    const exNames = {};
+    sesses.forEach(s => s.exercises.forEach(ex => { exNames[ex.exId] = ex.name; }));
+
+    const exStrength = {};
+    topExIds.forEach(id => { exStrength[id] = getExData(id); });
+
+    // Volume per session (chronological)
+    const volData = sesses.slice().reverse().map(s => ({ date: s.date, vol: sessVolume(s) }));
+
+    // Weekly frequency last 12 weeks
+    const weekFreq = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+        const ws = new Date(now); ws.setDate(now.getDate() - i*7);
+        const we = new Date(ws); we.setDate(ws.getDate()+6);
+        const a = ws.toISOString().slice(0,10), b = we.toISOString().slice(0,10);
+        weekFreq.push({ label: ws.toLocaleDateString('es-ES',{day:'numeric',month:'short'}), count: sesses.filter(s=>s.date>=a&&s.date<=b).length });
+    }
+
+    // Stats
+    const sorted = [...sesses].reverse();
+    const firstDate = sorted[0]?.date;
+    const lastDate = sorted[sorted.length-1]?.date;
+    const totalVol = sesses.reduce((t,s)=>t+sessVolume(s),0);
+    const bwFirst = bw[0]?.weight, bwLast = bw[bw.length-1]?.weight;
+    const bwChange = bwFirst && bwLast ? Math.round((bwLast-bwFirst)*10)/10 : null;
+    let weekAvg = null;
+    if (firstDate && lastDate && sesses.length >= 3) {
+        const days = (new Date(lastDate)-new Date(firstDate))/(1000*60*60*24);
+        if (days >= 7) weekAvg = (sesses.length/(days/7)).toFixed(1);
+    }
+    const fmtD = d => new Date(d+'T12:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'});
+    const period = firstDate === lastDate ? fmtD(firstDate) : fmtD(firstDate)+' \u2013 '+fmtD(lastDate);
+
+    const data = {
+        profile: p,
+        sessions: sesses,
+        bwData: bw,
+        prs,
+        exStrength,
+        exNames,
+        weekFreq,
+        volData,
+        stats: {
+            totalSessions: sesses.length,
+            totalVolStr: totalVol >= 1000000 ? (totalVol/1000000).toFixed(1)+'M' : totalVol >= 1000 ? (totalVol/1000).toFixed(1)+'k' : totalVol.toLocaleString(),
+            prCount: Object.keys(prs).length,
+            weekAvg,
+            bwChange,
+            period
+        }
+    };
+
+    const html = buildReportHTML(data);
+    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'reporte-' + p.name.replace(/\s+/g,'-').toLowerCase().replace(/[^a-z0-9-]/g,'') + '-' + today() + '.html';
+    a.click();
+}
+
+function exportExcel() {
+    const p = profile.value;
+    if (!p) return;
+    const sesses = mySessions.value;
+    if (!sesses.length) { alert('No hay sesiones registradas todavía.'); return; }
+    const bw = myBW.value;
+    const prs = allPRs.value;
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Hoja 1: Resumen ──────────────────────────────────────────
+    const sorted = [...sesses].reverse();
+    const firstDate = sorted[0]?.date;
+    const lastDate = sorted[sorted.length-1]?.date;
+    const totalVol = sesses.reduce((t,s) => t + sessVolume(s), 0);
+    const bwLast = bw.length ? bw[bw.length-1].weight : null;
+    const bwFirst = bw.length ? bw[0].weight : null;
+    const summaryRows = [
+        ['FitTracker Pro — Reporte de ' + p.name],
+        ['Generado el', new Date().toLocaleDateString('es-ES', {day:'numeric',month:'long',year:'numeric'})],
+        [],
+        ['RESUMEN GENERAL'],
+        ['Sesiones totales', sesses.length],
+        ['Período', fmtDate(firstDate) + ' – ' + fmtDate(lastDate)],
+        ['Volumen total acumulado (kg)', totalVol],
+        ['Records personales', Object.keys(prs).length],
+        ['Último peso registrado', bwLast ? bwLast + ' kg' : '—'],
+        ['Cambio de peso total', bwFirst && bwLast ? (Math.round((bwLast-bwFirst)*10)/10) + ' kg' : '—'],
+    ];
+    if (p.height) summaryRows.push(['Altura', p.height + ' cm']);
+    if (p.gender) summaryRows.push(['Sexo', p.gender === 'male' ? 'Hombre' : 'Mujer']);
+    const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
+    ws1['!cols'] = [{ wch: 32 }, { wch: 28 }];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Resumen');
+
+    // ── Hoja 2: Sesiones detalladas ──────────────────────────────
+    const sessRows = [['Fecha', 'Ejercicio', 'Grupo muscular', 'Serie', 'Peso (kg)', 'Reps', '1RM Est. (kg)', 'Volumen serie (kg)', 'Notas sesión']];
+    sorted.forEach(s => {
+        s.exercises.forEach(ex => {
+            ex.sets.forEach((set, si) => {
+                const orm = set.weight && set.reps ? calc1RM(set.weight, set.reps) : '';
+                const vol = (set.weight || 0) * (set.reps || 0);
+                sessRows.push([
+                    s.date, ex.name, getMG(ex.mg).name,
+                    si + 1, set.weight || '', set.reps || '',
+                    orm || '', vol || '',
+                    si === 0 ? (s.notes || '') : ''
+                ]);
+            });
+        });
+    });
+    const ws2 = XLSX.utils.aoa_to_sheet(sessRows);
+    ws2['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 6 }, { wch: 10 }, { wch: 6 }, { wch: 14 }, { wch: 18 }, { wch: 30 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Sesiones');
+
+    // ── Hoja 3: Records Personales ───────────────────────────────
+    const prRows = [['Ejercicio', 'Grupo muscular', 'Peso (kg)', 'Reps', '1RM Est. (kg)', 'Fecha']];
+    Object.values(prs).sort((a,b) => b.orm - a.orm).forEach(pr => {
+        prRows.push([pr.name, getMG(exercises.value.find(e=>e.id===Object.keys(prs).find(k=>prs[k]===pr))?.muscleGroup||'')?.name||'', pr.weight, pr.reps, pr.orm, pr.date]);
+    });
+    const ws3 = XLSX.utils.aoa_to_sheet(prRows);
+    ws3['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 6 }, { wch: 14 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Records (PRs)');
+
+    // ── Hoja 4: Peso corporal ─────────────────────────────────────
+    if (bw.length) {
+        const bwRows = [['Fecha', 'Peso (kg)', '% Grasa corporal', 'Masa magra (kg)']];
+        bw.forEach(b => {
+            const lbm = b.weight && b.bodyFat ? Math.round(b.weight * (1 - b.bodyFat/100) * 10) / 10 : '';
+            bwRows.push([b.date, b.weight, b.bodyFat ?? '', lbm]);
+        });
+        const ws4 = XLSX.utils.aoa_to_sheet(bwRows);
+        ws4['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }];
+        XLSX.utils.book_append_sheet(wb, ws4, 'Peso corporal');
+    }
+
+    XLSX.writeFile(wb, 'reporte-' + p.name.replace(/\s+/g,'-').toLowerCase().replace(/[^a-z0-9-]/g,'') + '-' + today() + '.xlsx');
+}
+
 // Charts
 function chartBase() {
     return {
@@ -650,7 +945,7 @@ return {
     finishWorkout, cancelWorkout,
     startTimer, stopTimer, resetTimer,
     saveBW, addExLib, createAndAddEx, updateProfileBody, sessVolume, deleteSession,
-    exportData, importData, setDefaultSets,
+    exportData, importData, generateReport, exportExcel, setDefaultSets,
     getExData, currentFFMI, calcFFMI, ffmiRange, ffmiGaugePct,
     newProfileHeight, newProfileGender, newBF,
     copiedDay, copyDay, pasteDay,
@@ -1205,6 +1500,17 @@ template: `
         <!-- Data -->
         <div class="rounded-2xl p-4 space-y-3" style="background:#111827">
             <div class="font-bold text-slate-300">💾 Datos</div>
+            <button @click="generateReport"
+                class="w-full py-3.5 rounded-xl text-sm text-white font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                :style="{ background: 'linear-gradient(135deg,' + profile.color + ',' + profile.color + 'bb)' }">
+                📊 Generar reporte para entrenador
+            </button>
+            <button @click="exportExcel"
+                class="w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                style="background:#1e2a3a; color:#10b981; border: 1px solid #10b98130">
+                📋 Exportar a Excel (.xlsx)
+            </button>
+            <div class="text-xs text-slate-600 -mt-1 text-center">Reporte · envíalo por WhatsApp · o edítalo en Excel</div>
             <button @click="exportData" class="w-full py-3 rounded-xl text-sm text-slate-300 font-medium flex items-center justify-center gap-2 active:scale-95" style="background:#1e2a3a">
                 📤 Exportar datos (backup)
             </button>
